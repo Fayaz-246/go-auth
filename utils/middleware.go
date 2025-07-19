@@ -1,52 +1,55 @@
 package utils
 
-import	"github.com/gofiber/fiber/v3"
+import (
+	"github.com/gofiber/fiber/v3"
+)
 
-func JWTMiddleware(jwtkey string) fiber.Handler {
+func extractUserClaims(ctx fiber.Ctx, jwtKey string) (map[string]interface{}, error) {
+	tokenStr := ctx.Get("AuthToken")
+	if tokenStr == "" {
+		return nil, fiber.ErrUnauthorized
+	}
+
+	claims, err := Verify(tokenStr, jwtKey)
+	if err != nil {
+		return nil, fiber.ErrUnauthorized
+	}
+
+	return claims, nil
+}
+
+func JWTMiddleware(jwtKey string) fiber.Handler {
 	return func(ctx fiber.Ctx) error {
-		tokenStr := ctx.Get("AuthToken")
-		if tokenStr == "" {
-			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "AuthToken header missing",
-			})
-		}
-
-		claims, err := Verify(tokenStr, jwtkey)
+		claims, err := extractUserClaims(ctx, jwtKey)
 		if err != nil {
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "Invalid or expired token",
+				"error": "Invalid or missing AuthToken",
 			})
 		}
 
 		ctx.Locals("user", claims)
-
 		return ctx.Next()
 	}
 }
 
-func RequireRole(role string, jwtkey string) fiber.Handler {
+func RequireRole(role string, jwtKey string) fiber.Handler {
 	return func(ctx fiber.Ctx) error {
-		tokenStr := ctx.Get("AuthToken")
-		if tokenStr == "" {
-			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "AuthToken header missing",
-			})
-		}
-
-		claims, err := Verify(tokenStr, jwtkey)
+		claims, err := extractUserClaims(ctx, jwtKey)
 		if err != nil {
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "Invalid or expired token",
+				"error": "Invalid or missing AuthToken",
 			})
 		}
 
-		ctx.Locals("user", claims)
-
-		if claims["role"] != role {
+		userRole, ok := claims["role"].(string)
+		if !ok || userRole != role {
 			return ctx.Status(fiber.StatusForbidden).JSON(fiber.Map{
 				"error": "Access denied",
 			})
 		}
+
+		ctx.Locals("user", claims)
 		return ctx.Next()
 	}
 }
+
